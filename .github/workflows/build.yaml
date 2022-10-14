@@ -1,0 +1,100 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  initialize:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.get-apps.outputs.apps }}
+    steps:
+    - id: install-jq
+      name: install-jq
+      run: sudo apt-get -y install jq
+
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 3
+
+    - id: get-apps
+      name: get-apps
+      run: |
+        APPS=$(git diff --name-only ${{ github.event.before }} | awk -F "/*[^/]*/*$" '{ print ($1 == "" ? "." : $1); }' | sort | uniq | grep apps | cut -d/ -f2)
+        jqResult=$(echo ${APPS[@]} | jq -csR 'split(" ")') 
+        echo "::set-output name=apps::$jqResult"
+
+  build:
+    needs: initialize
+    if: ${{ needs.initialize.outputs.apps != '["\n"]' }} # only run jobs if there is a change at least one app
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: 
+        apps: ${{ fromJSON(needs.initialize.outputs.apps) }}
+    env:
+      APP: ${{ matrix.apps }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: install yarn
+      run: |
+        sudo apt update -y && sudo apt install yarn
+
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: geralvinmaheswara/monorepo-${{ matrix.apps }}
+        tags: type=sha
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v3
+      with:
+        context: .
+        push: true
+        build-args: APP=${{ matrix.apps }}
+        tags:  ${{ steps.meta.outputs.tags }}
+
+    - name: create deployment manifest
+      run: |
+        mkdir -p data/images
+        echo "${{ steps.meta.outputs.tags }}" >> data/images/${{ matrix.apps }}
+  
+    - name: store image data
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ github.sha }}
+        path: data/images
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Retrieve deployment manifest
+      uses: actions/download-artifact@v2
+      with:
+        name: ${{ github.sha }}
+        path: data/images
+    
+    - name: check files
+      run: |
+        ls -al data/images
+
+    # So, from here we can decide what we want to do later for deployment.
+    # In this case, I want to collect all images & tags that had pushed to docker hub
+    # Later, we can replace the image on deployment config file 
+    # then commit all changes at once to deployment repository
+    # it can be using helm or kustomize or etc.
