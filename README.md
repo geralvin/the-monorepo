@@ -18,6 +18,11 @@ The whole workflow consist of three jobs
 1. `initialize`: On the first job, it will gather all apps that changed and will be set as output that later will be used for matrix input on the second job
 2. `build`: This Job depends on `initialize` and will only trigger if there is at least one changes in apps/* directory. This job will create docker image and push to docker registry. And also storing some manifest files for deployment into github artifact. Manifest files contains repository name and tag.
 3. `deploy`: In this case, we can get manifests from artifact and use it to trigger deployment (TBD).
+ 
+
+List of docker repositories for this case.
+- `docs`: https://hub.docker.com/r/geralvinmaheswara/monorepo-docs
+- `web`: https://hub.docker.com/r/geralvinmaheswara/monorepo-web
 
 ### Technical consideration
 - `using github matrix`: Doing the entire build process in one job can raise some concerns such as:  
